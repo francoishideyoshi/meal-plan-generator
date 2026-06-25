@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly Meal Plan Generator</title>
+<style>
+  /* ---------- A4 landscape print ---------- */
+  @page { size: A4 landscape; margin: 8mm; }
+  :root{
+    --a4w: 1122px;            /* A4 landscape @96dpi */
+    --bg:#f6f7f4; --card:#fff; --ink:#23291f; --muted:#7a8270;
+    --line:#e2e6da; --accent:#5b8c3e; --accent2:#c4622d; --soup:#d98324;
+    --asian:#d97a4a; --chinese:#c0563e; --western:#4a7a8c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.45 "Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;}
+  .sheet{max-width:var(--a4w);margin:14px auto;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;padding:18px 22px;
+    box-shadow:0 2px 14px rgba(0,0,0,.05);}
+  h1{font-size:21px;margin:0 0 2px}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+  .src{font-size:11px;color:var(--muted)}
+  .src b{color:var(--accent)}
+
+  /* ---------- controls grid ---------- */
+  .controls{display:grid;grid-template-columns:120px repeat(3,1fr) 90px;gap:8px;
+    align-items:center;background:#fbfcf9;border:1px solid var(--line);
+    border-radius:8px;padding:12px;margin-bottom:14px}
+  .controls .hd{font-weight:600;font-size:12px;color:var(--muted);text-align:center}
+  .controls .mealname{font-weight:600}
+  .controls input[type=number]{width:54px;padding:4px;border:1px solid var(--line);
+    border-radius:6px;text-align:center;font-size:14px}
+  .soupcell{display:flex;align-items:center;gap:5px;justify-content:center;font-size:12px}
+  .cuisine-in{display:flex;gap:4px;align-items:center;justify-content:center}
+
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+  button{font:inherit;cursor:pointer;border:none;border-radius:8px;padding:9px 16px;font-weight:600}
+  .btn-rand{background:var(--accent);color:#fff;font-size:15px}
+  .btn-confirm{background:var(--accent2);color:#fff}
+  .btn-ghost{background:#eef1ea;color:var(--ink)}
+  button:active{transform:translateY(1px)}
+  .hint{color:var(--muted);font-size:11px}
+
+  /* ---------- plan board ---------- */
+  .board{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:8px}
+  .meal{border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;min-height:120px}
+  .meal h2{font-size:14px;margin:0;padding:8px 10px;border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:center;background:#fbfcf9;border-radius:8px 8px 0 0}
+  .meal h2 .cnt{font-weight:400;color:var(--muted);font-size:11px}
+  .slots{padding:8px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .slots.drop-hot{background:#eef6e6;outline:2px dashed var(--accent);outline-offset:-4px}
+  .dish{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff;
+    display:flex;justify-content:space-between;align-items:flex-start;gap:6px;cursor:grab}
+  .dish .nm{font-weight:600;font-size:12.5px}
+  .dish .ig{color:var(--muted);font-size:10.5px;line-height:1.3}
+  .dish .x{cursor:pointer;color:#bbb;font-weight:700;border:none;background:none;padding:0 2px;font-size:14px}
+  .dish .x:hover{color:var(--accent2)}
+  .tag{display:inline-block;font-size:9.5px;padding:1px 6px;border-radius:20px;color:#fff;margin-right:4px;vertical-align:1px}
+  .t-Asian{background:var(--asian)} .t-Chinese{background:var(--chinese)} .t-Western{background:var(--western)}
+  .t-soup{background:var(--soup)}
+  .empty{color:#bbb;font-size:11px;text-align:center;padding:12px 0;font-style:italic}
+
+  /* ---------- library ---------- */
+  .lib{border:1px solid var(--line);border-radius:8px;margin:14px 0;overflow:hidden}
+  .lib summary{cursor:pointer;padding:10px 12px;font-weight:600;background:#fbfcf9;user-select:none}
+  .libbody{padding:10px 12px}
+  .libfilters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .libfilters input,.libfilters select{padding:5px 8px;border:1px solid var(--line);border-radius:6px;font:inherit}
+  .libfilters input[type=search]{flex:1;min-width:160px}
+  .liblist{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;
+    max-height:230px;overflow-y:auto;padding-right:4px}
+  .libitem{border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:#fff;cursor:grab;font-size:12px}
+  .libitem .nm{font-weight:600}
+  .libitem small{color:var(--muted);display:block;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .libcount{color:var(--muted);font-size:11px;margin-bottom:6px}
+
+  /* ---------- ingredients ---------- */
+  .ing-sec{border-top:2px solid var(--line);margin-top:14px;padding-top:12px}
+  .ing-sec h2{font-size:16px;margin:0 0 8px}
+  .locked{color:var(--muted);font-style:italic;font-size:12px}
+  .ing-grid{columns:4;column-gap:18px}
+  .ing-grid .row{break-inside:avoid;padding:2px 0;border-bottom:1px dotted var(--line);font-size:12.5px;
+    display:flex;justify-content:space-between}
+  .ing-grid .q{color:var(--accent2);font-weight:700}
+  .stamp{font-size:11px;color:var(--muted);margin-top:8px}
+
+  @media print{
+    body{background:#fff}
+    .sheet{border:none;box-shadow:none;margin:0;max-width:none;padding:0}
+    .controls,.actions,.lib,.no-print{display:none !important}
+    .board{break-inside:avoid}
+    .ing-grid{columns:5}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <h1>🍽 Weekly Meal Plan</h1>
+  <div class="sub">Pick how many of each cuisine per meal, hit Randomize, drag dishes to taste, then Confirm to print the shopping list.</div>
+  <div class="src no-print" id="src">Loading recipes…</div>
+
+  <!-- CONTROLS -->
+  <div class="controls no-print" id="controls">
+    <div></div>
+    <div class="hd">🥢 Asian</div><div class="hd">🥡 Chinese</div><div class="hd">🍞 Western</div>
+    <div class="hd">🥣 Soup</div>
+  </div>
+
+  <div class="actions no-print">
+    <button class="btn-rand" id="btnRand">🎲 Randomize</button>
+    <button class="btn-ghost" id="btnClear">Clear</button>
+    <span class="hint" id="cooldownNote"></span>
+  </div>
+
+  <!-- PLAN BOARD -->
+  <div class="board" id="board"></div>
+
+  <!-- LIBRARY -->
+  <details class="lib no-print" id="lib">
+    <summary>📚 Full recipe list — drag any dish into a meal above</summary>
+    <div class="libbody">
+      <div class="libfilters">
+        <input type="search" id="libSearch" placeholder="Search recipe or ingredient…">
+        <select id="libMeal"><option value="">All meals</option><option>Breakfast</option><option>Lunch</option><option>Dinner</option></select>
+        <select id="libCuisine"><option value="">All cuisines</option><option>Asian</option><option>Chinese</option><option>Western</option></select>
+        <select id="libSoup"><option value="">Soup &amp; mains</option><option value="soup">Soups only</option><option value="main">Mains only</option></select>
+      </div>
+      <div class="libcount" id="libCount"></div>
+      <div class="liblist" id="liblist"></div>
+    </div>
+  </details>
+
+  <div class="actions no-print">
+    <button class="btn-confirm" id="btnConfirm">🔒 Confirm &amp; build shopping list</button>
+    <span class="hint">Asks for your password before generating ingredients.</span>
+  </div>
+
+  <!-- INGREDIENTS -->
+  <div class="ing-sec">
+    <h2>🛒 Shopping list <span class="hint no-print" id="ingMeta"></span></h2>
+    <div id="ingBody"><div class="locked">Locked — press “Confirm” and enter your password to generate the consolidated ingredient list.</div></div>
+  </div>
+</div>
+
+<script>
+/* =================================================================
+   CONFIG
+   ================================================================= */
+// To go LIVE off your Google Sheet: paste the Sheet ID below.
+// (From the sheet URL: docs.google.com/spreadsheets/d/<THIS_PART>/edit)
+// Leave empty to use the bundled recipes.json.
+const SHEET_ID   = "";
+const SHEET_NAME = "All Recipes";
+
+// Password gate (SHA-256 hash). Default password = "mealplan2026".
+// CHANGE IT: run  printf '%s' 'YOURNEWPASS' | shasum -a 256  and paste the hash here.
+const PASSWORD_HASH = "cf9ae49de4801c3e06a21db277ab2e3d52a52aff264e6c8366b33360cb705bba";
+
+const COOLDOWN_WEEKS = 4;   // a recipe can't reappear for this many weeks
+const MEALS = ["Breakfast","Lunch","Dinner"];
+const CUISINES = ["Asian","Chinese","Western"];
+const DEFAULTS = {  // starting per-meal cuisine counts (mirrors the Excel)
+  Breakfast:{Asian:2,Chinese:2,Western:3,soup:false},
+  Lunch:    {Asian:3,Chinese:2,Western:2,soup:false},
+  Dinner:   {Asian:2,Chinese:3,Western:2,soup:true},
+};
+
+/* =================================================================
+   STATE
+   ================================================================= */
+let RECIPES = [];
+let plan = {Breakfast:[],Lunch:[],Dinner:[]};
+const HKEY = "mealplan_history_v1";   // {recipeId: weekIndex}
+
+/* ---------- ISO-ish week index (weeks since epoch) ---------- */
+function currentWeek(){ return Math.floor(Date.now()/(7*24*3600*1000)); }
+function loadHistory(){ try{return JSON.parse(localStorage.getItem(HKEY))||{};}catch(e){return {};} }
+function saveHistory(h){ localStorage.setItem(HKEY, JSON.stringify(h)); }
+function weeksSinceUsed(id){
+  const h = loadHistory(); if(!(id in h)) return Infinity;
+  return currentWeek() - h[id];
+}
+function isCool(id){ return weeksSinceUsed(id) >= COOLDOWN_WEEKS; }
+
+/* =================================================================
+   DATA LOADING (live Google Sheet -> fallback recipes.json)
+   ================================================================= */
+async function loadRecipes(){
+  if(SHEET_ID){
+    try{
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+      const txt = await (await fetch(url)).text();
+      const rows = parseCSV(txt);
+      RECIPES = rowsToRecipes(rows);
+      setSrc(`Live from Google Sheet · <b>${RECIPES.length}</b> recipes`);
+      return;
+    }catch(e){ console.warn("Sheet fetch failed, using bundled data", e); }
+  }
+  const data = await (await fetch("recipes.json")).json();
+  RECIPES = data.map(normRecipe);
+  setSrc(`Bundled data · <b>${RECIPES.length}</b> recipes${SHEET_ID?" (sheet unreachable)":""}`);
+}
+function setSrc(html){ document.getElementById("src").innerHTML = html; }
+
+function normRecipe(r){
+  return { id:r.id, name:r.name, ingredients:r.ingredients||"",
+    meals:r.meals||[], cuisine:r.cuisine||"", isSoup:!!r.isSoup, link:r.link||"" };
+}
+const SOUP_RE = /soup|湯|汤/i;
+function rowsToRecipes(rows){
+  const head = rows[0].map(h=>h.trim());
+  const ix = n => head.indexOf(n);
+  const out=[];
+  for(let i=1;i<rows.length;i++){
+    const c = rows[i]; const name=(c[ix("Recipe")]||"").trim();
+    if(!name) continue;
+    let ing=(c[ix("Ingredients")]||"").trim(); if(ing==="—") ing="";
+    out.push(normRecipe({
+      id:i, name, ingredients:ing,
+      meals:(c[ix("Meal Type")]||"").split(",").map(s=>s.trim()).filter(Boolean),
+      cuisine:(c[ix("Cuisine")]||"").trim(),
+      isSoup: ix("Soup")>=0 ? /true|1|yes/i.test(c[ix("Soup")]||"") : SOUP_RE.test(name),
+      link:(c[ix("Link")]||"").trim()
+    }));
+  }
+  return out;
+}
+/* minimal RFC-4180 CSV parser */
+function parseCSV(t){
+  const rows=[]; let row=[], f="", q=false;
+  for(let i=0;i<t.length;i++){const ch=t[i];
+    if(q){ if(ch==='"'){ if(t[i+1]==='"'){f+='"';i++;} else q=false; } else f+=ch; }
+    else { if(ch==='"') q=true;
+      else if(ch===','){ row.push(f); f=""; }
+      else if(ch==='\n'){ row.push(f); rows.push(row); row=[]; f=""; }
+      else if(ch==='\r'){} else f+=ch; }
+  }
+  if(f.length||row.length){ row.push(f); rows.push(row); }
+  return rows;
+}
+
+/* =================================================================
+   CONTROLS
+   ================================================================= */
+function buildControls(){
+  const wrap = document.getElementById("controls");
+  MEALS.forEach(m=>{
+    const d=DEFAULTS[m];
+    const mk=(cu)=>`<div class="cuisine-in"><input type="number" min="0" max="20" value="${d[cu]}" data-meal="${m}" data-cuisine="${cu}"></div>`;
+    wrap.insertAdjacentHTML("beforeend",
+      `<div class="mealname">${m}</div>${mk("Asian")}${mk("Chinese")}${mk("Western")}
+       <div class="soupcell"><label><input type="checkbox" data-meal="${m}" data-soup="1" ${d.soup?"checked":""}> yes</label></div>`);
+  });
+}
+function readControls(){
+  const cfg={};
+  MEALS.forEach(m=>cfg[m]={Asian:0,Chinese:0,Western:0,soup:false});
+  document.querySelectorAll('#controls input[type=number]').forEach(i=>{
+    cfg[i.dataset.meal][i.dataset.cuisine] = Math.max(0, parseInt(i.value)||0);
+  });
+  document.querySelectorAll('#controls input[data-soup]').forEach(i=>{
+    cfg[i.dataset.meal].soup = i.checked;
+  });
+  return cfg;
+}
+
+/* =================================================================
+   RANDOMIZE  (cooldown-aware, less random)
+   ================================================================= */
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
+
+// pick n recipes matching predicate, preferring cooled-down ones, no dups vs `taken`
+function pick(n, pred, taken){
+  if(n<=0) return [];
+  const pool = RECIPES.filter(r=>pred(r) && !taken.has(r.id));
+  const cool = shuffle(pool.filter(r=>isCool(r.id)));
+  const hot  = pool.filter(r=>!isCool(r.id))
+                   .sort((a,b)=>weeksSinceUsed(b.id)-weeksSinceUsed(a.id)); // stalest first
+  const ordered = cool.concat(hot);
+  const out=[];
+  for(const r of ordered){ if(out.length>=n) break; out.push(r); taken.add(r.id); }
+  return out;
+}
+function randomize(){
+  const cfg = readControls();
+  const taken = new Set();
+  const next = {Breakfast:[],Lunch:[],Dinner:[]};
+  MEALS.forEach(m=>{
+    CUISINES.forEach(cu=>{
+      next[m].push(...pick(cfg[m][cu],
+        r=>r.meals.includes(m) && r.cuisine===cu && !r.isSoup, taken));
+    });
+    if(cfg[m].soup){
+      next[m].push(...pick(1, r=>r.meals.includes(m) && r.isSoup, taken));
+    }
+  });
+  plan = next;
+  renderBoard();
+  lockIngredients();
+}
+
+/* =================================================================
+   PLAN BOARD + drag & drop
+   ================================================================= */
+function dishHTML(r){
+  const tag = r.isSoup ? `<span class="tag t-soup">soup</span>`
+                       : `<span class="tag t-${r.cuisine}">${r.cuisine}</span>`;
+  const ig = r.ingredients ? `<div class="ig">${escapeHTML(r.ingredients)}</div>` : "";
+  return `<div class="dish" draggable="true" data-id="${r.id}">
+      <div><div class="nm">${tag}${escapeHTML(r.name)}</div>${ig}</div>
+      <button class="x no-print" title="remove" data-id="${r.id}">×</button></div>`;
+}
+function renderBoard(){
+  const board = document.getElementById("board");
+  board.innerHTML = MEALS.map(m=>{
+    const dishes = plan[m].map(dishHTML).join("") || `<div class="empty">drop dishes here</div>`;
+    return `<div class="meal"><h2>${m}<span class="cnt">${plan[m].length} dish${plan[m].length===1?"":"es"}</span></h2>
+      <div class="slots" data-meal="${m}">${dishes}</div></div>`;
+  }).join("");
+  wireBoard();
+}
+function wireBoard(){
+  document.querySelectorAll(".dish").forEach(el=>{
+    el.addEventListener("dragstart",e=>{
+      e.dataTransfer.setData("text/plain", JSON.stringify({id:+el.dataset.id, from:"plan"}));
+    });
+  });
+  document.querySelectorAll(".dish .x").forEach(b=>{
+    b.addEventListener("click",()=>{ removeDish(+b.dataset.id); });
+  });
+  document.querySelectorAll(".slots").forEach(s=>{
+    s.addEventListener("dragover",e=>{e.preventDefault();s.classList.add("drop-hot");});
+    s.addEventListener("dragleave",()=>s.classList.remove("drop-hot"));
+    s.addEventListener("drop",e=>{
+      e.preventDefault(); s.classList.remove("drop-hot");
+      const d = JSON.parse(e.dataTransfer.getData("text/plain"));
+      addDish(d.id, s.dataset.meal);
+    });
+  });
+}
+function findRecipe(id){ return RECIPES.find(r=>r.id===id); }
+function removeDish(id){
+  MEALS.forEach(m=> plan[m]=plan[m].filter(r=>r.id!==id));
+  renderBoard(); lockIngredients();
+}
+function addDish(id, meal){
+  const r = findRecipe(id); if(!r) return;
+  MEALS.forEach(m=> plan[m]=plan[m].filter(x=>x.id!==id)); // move, no dupes
+  plan[meal].push(r);
+  renderBoard(); lockIngredients();
+}
+
+/* =================================================================
+   LIBRARY
+   ================================================================= */
+function renderLibrary(){
+  const q=(document.getElementById("libSearch").value||"").toLowerCase();
+  const fm=document.getElementById("libMeal").value;
+  const fc=document.getElementById("libCuisine").value;
+  const fs=document.getElementById("libSoup").value;
+  const res = RECIPES.filter(r=>{
+    if(fm && !r.meals.includes(fm)) return false;
+    if(fc && r.cuisine!==fc) return false;
+    if(fs==="soup" && !r.isSoup) return false;
+    if(fs==="main" && r.isSoup) return false;
+    if(q && !(r.name.toLowerCase().includes(q) || r.ingredients.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  document.getElementById("libCount").textContent = `${res.length} recipe(s) — drag onto a meal`;
+  document.getElementById("liblist").innerHTML = res.slice(0,600).map(r=>{
+    const tag = r.isSoup?`<span class="tag t-soup">soup</span>`:`<span class="tag t-${r.cuisine}">${r.cuisine}</span>`;
+    return `<div class="libitem" draggable="true" data-id="${r.id}">
+      <div class="nm">${tag}${escapeHTML(r.name)}</div>
+      <small>${escapeHTML(r.meals.join(", "))}${r.ingredients?" · "+escapeHTML(r.ingredients):""}</small></div>`;
+  }).join("");
+  document.querySelectorAll(".libitem").forEach(el=>{
+    el.addEventListener("dragstart",e=>{
+      e.dataTransfer.setData("text/plain", JSON.stringify({id:+el.dataset.id, from:"lib"}));
+    });
+  });
+}
+
+/* =================================================================
+   CONFIRM (password) + INGREDIENT CONSOLIDATION
+   ================================================================= */
+async function sha256(s){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+async function confirmPlan(){
+  const all = MEALS.flatMap(m=>plan[m]);
+  if(!all.length){ alert("Your plan is empty — randomize or drag in some dishes first."); return; }
+  const pw = prompt("Enter password to confirm and build the shopping list:");
+  if(pw===null) return;
+  if(await sha256(pw) !== PASSWORD_HASH){ alert("Wrong password."); return; }
+  commitHistory(all);
+  renderIngredients(all);
+}
+function commitHistory(all){
+  const h = loadHistory(); const w = currentWeek();
+  all.forEach(r=> h[r.id]=w);
+  saveHistory(h);
+  updateCooldownNote();
+}
+function normIng(s){ return s.replace(/\s+/g," ").trim(); }
+function renderIngredients(all){
+  const counts = new Map();   // lowercased key -> {label, n}
+  all.forEach(r=>{
+    (r.ingredients||"").split(/[,，]/).forEach(part=>{
+      const name = normIng(part); if(!name||name==="—") return;
+      const key = name.toLowerCase();
+      if(counts.has(key)) counts.get(key).n++;
+      else counts.set(key,{label:name, n:1});
+    });
+  });
+  const items=[...counts.values()].sort((a,b)=>a.label.localeCompare(b.label));
+  const rows = items.map(it=>
+    `<div class="row"><span>${escapeHTML(it.label)}</span>${it.n>1?`<span class="q">×${it.n}</span>`:""}</div>`).join("");
+  document.getElementById("ingBody").innerHTML =
+    `<div class="ing-grid">${rows}</div>
+     <div class="stamp">${all.length} dishes · ${items.length} unique ingredients · confirmed ${new Date().toLocaleDateString()}</div>`;
+  document.getElementById("ingMeta").textContent = "✓ confirmed";
+  document.querySelector(".ing-sec").scrollIntoView({behavior:"smooth"});
+}
+function lockIngredients(){
+  document.getElementById("ingBody").innerHTML =
+    `<div class="locked">Locked — press “Confirm” and enter your password to generate the consolidated ingredient list.</div>`;
+  document.getElementById("ingMeta").textContent = "";
+}
+
+/* =================================================================
+   MISC
+   ================================================================= */
+function escapeHTML(s){ return (s+"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function updateCooldownNote(){
+  const used = Object.keys(loadHistory()).length;
+  document.getElementById("cooldownNote").textContent =
+    `No-repeat window: ${COOLDOWN_WEEKS} weeks · ${used} recipes on cooldown`;
+}
+function clearPlan(){ plan={Breakfast:[],Lunch:[],Dinner:[]}; renderBoard(); lockIngredients(); }
+
+/* =================================================================
+   INIT
+   ================================================================= */
+(async function init(){
+  buildControls();
+  await loadRecipes();
+  renderBoard();
+  renderLibrary();
+  updateCooldownNote();
+  document.getElementById("btnRand").addEventListener("click", randomize);
+  document.getElementById("btnClear").addEventListener("click", clearPlan);
+  document.getElementById("btnConfirm").addEventListener("click", confirmPlan);
+  ["libSearch","libMeal","libCuisine","libSoup"].forEach(id=>
+    document.getElementById(id).addEventListener("input", renderLibrary));
+  randomize();   // first plan on load
+})();
+</script>
+</body>
+</html>
