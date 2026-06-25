@@ -154,6 +154,12 @@
 const SHEET_ID   = "";
 const SHEET_NAME = "All Recipes";
 
+// Cross-machine cooldown history (optional). Stored in a "History" tab of the SAME
+// Google Sheet. READ is free via CSV (needs SHEET_ID + sheet published to web).
+// WRITE goes through a tiny Apps Script endpoint — paste its /exec URL here.
+// See history/SETUP.md. Leave empty to use per-device localStorage only.
+const HISTORY_API = "";
+
 // Password gate (SHA-256 hash). Default password = "mealplan2026".
 // CHANGE IT: run  printf '%s' 'YOURNEWPASS' | shasum -a 256  and paste the hash here.
 const PASSWORD_HASH = "fb4520baa529c0f555bdd3e3f3c2568dd031b9ffd66916ac005c52e0faabdc0f";
@@ -172,17 +178,44 @@ const DEFAULTS = {  // starting per-meal cuisine counts (mirrors the Excel)
    ================================================================= */
 let RECIPES = [];
 let plan = {Breakfast:[],Lunch:[],Dinner:[]};
-const HKEY = "mealplan_history_v1";   // {recipeId: weekIndex}
+const HKEY = "mealplan_history_v1";   // {recipeId: weekIndex} — local cache
+let cloudHistory = {};                // {recipeId: weekIndex} — from Google Sheet History tab
 
 /* ---------- ISO-ish week index (weeks since epoch) ---------- */
 function currentWeek(){ return Math.floor(Date.now()/(7*24*3600*1000)); }
 function loadHistory(){ try{return JSON.parse(localStorage.getItem(HKEY))||{};}catch(e){return {};} }
 function saveHistory(h){ localStorage.setItem(HKEY, JSON.stringify(h)); }
+// merge cloud + local, keeping the most recent week per recipe
+function mergedHistory(){
+  const m = Object.assign({}, cloudHistory);
+  const local = loadHistory();
+  for(const k in local){ if(!(k in m) || local[k] > m[k]) m[k] = local[k]; }
+  return m;
+}
 function weeksSinceUsed(id){
-  const h = loadHistory(); if(!(id in h)) return Infinity;
-  return currentWeek() - h[id];
+  const m = mergedHistory(); if(!(id in m)) return Infinity;
+  return currentWeek() - m[id];
 }
 function isCool(id){ return weeksSinceUsed(id) >= COOLDOWN_WEEKS; }
+
+/* ---------- cloud history (Google Sheet "History" tab, read via CSV) ---------- */
+async function loadCloudHistory(){
+  if(!SHEET_ID) return;
+  try{
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=History`;
+    const rows = parseCSV(await (await fetch(url)).text());
+    if(rows.length<2) return;
+    const head = rows[0].map(h=>h.trim().toLowerCase());
+    const wi = head.indexOf("week"), ii = head.indexOf("recipeid");
+    if(wi<0 || ii<0) return;
+    const m={};
+    for(let i=1;i<rows.length;i++){
+      const id=parseInt(rows[i][ii]), w=parseInt(rows[i][wi]);
+      if(!isNaN(id) && !isNaN(w)) m[id]=Math.max(m[id]||0, w);
+    }
+    cloudHistory = m;
+  }catch(e){ console.warn("cloud history load failed", e); }
+}
 
 /* =================================================================
    DATA LOADING (live Google Sheet -> fallback recipes.json)
@@ -221,7 +254,9 @@ function rowsToRecipes(rows){
       id:i, name, ingredients:ing,
       meals:(c[ix("Meal Type")]||"").split(",").map(s=>s.trim()).filter(Boolean),
       cuisine:(c[ix("Cuisine")]||"").trim(),
-      isSoup: ix("Soup")>=0 ? /true|1|yes/i.test(c[ix("Soup")]||"") : SOUP_RE.test(name),
+      // soup = Soup column says yes OR the name matches — so recipes you add
+      // straight into the sheet (blank Soup cell) still auto-tag correctly.
+      isSoup: (ix("Soup")>=0 && /true|1|yes/i.test(c[ix("Soup")]||"")) || SOUP_RE.test(name),
       link:(c[ix("Link")]||"").trim()
     }));
   }
@@ -395,13 +430,22 @@ async function confirmPlan(){
   const pw = prompt("Enter password to confirm and build the shopping list:");
   if(pw===null) return;
   if(await sha256(pw) !== PASSWORD_HASH){ alert("Wrong password."); return; }
-  commitHistory(all);
+  commitHistory(all, pw);
   renderIngredients(all);
 }
-function commitHistory(all){
-  const h = loadHistory(); const w = currentWeek();
+function commitHistory(all, pw){
+  const w = currentWeek();
+  const h = loadHistory();                 // local cache
   all.forEach(r=> h[r.id]=w);
   saveHistory(h);
+  all.forEach(r=> cloudHistory[r.id]=w);   // reflect immediately in-memory
+  if(HISTORY_API){                         // fire-and-forget cloud save (no-cors, password-checked server-side)
+    fetch(HISTORY_API, {
+      method:"POST", mode:"no-cors",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({password:pw, week:w, ids: all.map(r=>r.id)})
+    }).catch(e=>console.warn("cloud history save failed", e));
+  }
   updateCooldownNote();
 }
 function normIng(s){ return s.replace(/\s+/g," ").trim(); }
@@ -435,9 +479,10 @@ function lockIngredients(){
    ================================================================= */
 function escapeHTML(s){ return (s+"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function updateCooldownNote(){
-  const used = Object.keys(loadHistory()).length;
+  const used = Object.keys(mergedHistory()).length;
+  const where = HISTORY_API ? "synced to Google Sheet" : "this device only";
   document.getElementById("cooldownNote").textContent =
-    `No-repeat window: ${COOLDOWN_WEEKS} weeks · ${used} recipes on cooldown`;
+    `No-repeat window: ${COOLDOWN_WEEKS} weeks · ${used} recipes on cooldown · ${where}`;
 }
 function clearPlan(){ plan={Breakfast:[],Lunch:[],Dinner:[]}; renderBoard(); lockIngredients(); }
 
@@ -447,6 +492,7 @@ function clearPlan(){ plan={Breakfast:[],Lunch:[],Dinner:[]}; renderBoard(); loc
 (async function init(){
   buildControls();
   await loadRecipes();
+  await loadCloudHistory();
   renderBoard();
   renderLibrary();
   updateCooldownNote();
